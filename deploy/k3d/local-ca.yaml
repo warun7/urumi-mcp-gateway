@@ -1,0 +1,30 @@
+# Local stand-in for Let's Encrypt, to rehearse the production TLS path on k3d (make tls-local).
+# A self-signed root CA, created by cert-manager inside the cluster, signs the platform and store certificates.
+# Nothing touches the host trust store: curl with --cacert, or accept the browser warning.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: urumi-local-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: Urumi local CA
+  secretName: urumi-local-ca
+  duration: 8760h
+  privateKey: { algorithm: ECDSA, size: 256 }
+  issuerRef: { name: selfsigned, kind: ClusterIssuer }
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: local-ca
+spec:
+  ca:
+    secretName: urumi-local-ca

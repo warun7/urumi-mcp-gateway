@@ -1,0 +1,58 @@
+# Idempotent store bootstrap: installs WordPress, activates WooCommerce, enables COD,
+# inserts the woo-mcp REST API key from the Secret, seeds products, runs DB migrations.
+# A Helm hook so it re-runs on every install/upgrade; `helm upgrade --wait` blocks on it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: store-setup
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: store-setup
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/name: store-setup
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 33
+        runAsGroup: 33
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: setup
+          image: {{ include "store.image" .Values.images.wordpress }}
+          imagePullPolicy: {{ .Values.images.wordpress.pullPolicy }}
+          securityContext: {{- include "store.containerSecurity" . | nindent 12 }}
+          command: ["/usr/local/share/store-setup/store-setup.sh"]
+          env:
+            {{- include "store.wpEnv" . | nindent 12 }}
+            - { name: STORE_TITLE, value: {{ .Values.store.title | quote }} }
+            - { name: STORE_TIMEZONE, value: {{ .Values.store.timezone | quote }} }
+            - { name: STORE_CURRENCY, value: {{ .Values.store.currency | quote }} }
+            - { name: STORE_COUNTRY, value: {{ .Values.store.country | quote }} }
+            - { name: SEED_PRODUCTS, value: {{ .Values.store.seedProducts | quote }} }
+            - { name: WORDPRESS_ADMIN_USER, value: {{ .Values.store.adminUser | quote }} }
+            - { name: WORDPRESS_ADMIN_EMAIL, value: {{ .Values.store.adminEmail | quote }} }
+            - name: WORDPRESS_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: wordpress, key: admin-password } }
+            - name: WOO_CONSUMER_KEY
+              valueFrom: { secretKeyRef: { name: woo-api, key: consumer-key } }
+            - name: WOO_CONSUMER_SECRET
+              valueFrom: { secretKeyRef: { name: woo-api, key: consumer-secret } }
+          resources: {{- toYaml .Values.resources.setupJob | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }

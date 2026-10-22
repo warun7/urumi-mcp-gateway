@@ -1,0 +1,100 @@
+# Defaults for one store. Local and prod differences live in values-local.yaml / values-prod.yaml.
+# The provisioner (bonus) installs this same chart once per store with generated values.
+
+store:
+  # Short id used in tool names (e.g. "default" -> default__list_orders) and labels.
+  name: default
+  title: Urumi Demo Store
+  host: shop.example.com
+  # Scheme of the public URL (what WordPress thinks its home URL is).
+  scheme: https
+  timezone: Asia/Kolkata
+  currency: INR
+  country: "IN:KA"
+  adminUser: admin
+  adminEmail: admin@example.com
+  seedProducts: true
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations: {}
+  tls:
+    enabled: false
+    # cert-manager ClusterIssuer that signs the store certificate (prod: letsencrypt-prod).
+    clusterIssuer: ""
+    secretName: store-tls
+
+# Secrets: "generate" creates random values on first install and keeps them across
+# upgrades (Helm lookup). For prod, set existingSecrets: true and pre-create them.
+secrets:
+  existingSecrets: false
+
+images:
+  wordpress:
+    repository: urumi/wordpress
+    tag: dev
+    pullPolicy: IfNotPresent
+  mariadb:
+    repository: mariadb
+    tag: "11.8.9"
+    pullPolicy: IfNotPresent
+  wooMcp:
+    repository: urumi/woo-mcp
+    tag: dev
+    pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+persistence:
+  storageClass: ""          # "" = cluster default (local-path on k3s)
+  mariadbSize: 5Gi
+  uploadsSize: 2Gi
+
+resources:
+  wordpress:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 768Mi }
+  mariadb:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 768Mi }
+  wooMcp:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+  setupJob:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+wooMcp:
+  enabled: true
+  logLevel: info
+  requestTimeoutMs: 10000
+
+# NetworkPolicies: default deny + explicit allows. Only the gateway may reach woo-mcp.
+networkPolicy:
+  enabled: true
+  gateway:
+    namespace: platform
+    podLabels:
+      app.kubernetes.io/name: gateway
+  ingressController:
+    namespace: kube-system
+    podLabels:
+      app.kubernetes.io/name: traefik
+
+# Guardrails (the provisioner also enforces these for dynamically created stores).
+quota:
+  enabled: false
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1536Mi
+    limits.cpu: "3"
+    limits.memory: 2560Mi
+    requests.storage: 8Gi
+    persistentvolumeclaims: "3"
+    pods: "8"
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+
+backup:
+  # pre-upgrade hook: mariadb-dump (to the backups/ subPath of the MariaDB volume) before any upgrade.
+  enabled: true

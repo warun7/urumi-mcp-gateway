@@ -1,0 +1,37 @@
+{{- $ns := .Release.Namespace }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+data:
+  PORT: "8080"
+  INTERNAL_PORT: "8081"
+  PUBLIC_BASE_URL: {{ include "platform.publicUrl" . | quote }}
+  AGENT_URL: "http://agent:8080"
+  ADMIN_EMAIL: {{ .Values.admin.email | quote }}
+  LOG_LEVEL: {{ .Values.gateway.logLevel | quote }}
+  HEALTH_INTERVAL_MS: {{ .Values.gateway.healthIntervalMs | quote }}
+  SYNC_INTERVAL_MS: {{ .Values.gateway.syncIntervalMs | quote }}
+  TOOL_SEARCH_AUTO_THRESHOLD: {{ .Values.gateway.toolSearchAutoThreshold | quote }}
+  RATE_LIMIT_PER_MINUTE: {{ .Values.gateway.rateLimitPerMinute | quote }}
+  SSRF_ALLOWED_INTERNAL_HOSTS: {{ tpl (join "," .Values.gateway.ssrfAllowedInternalHosts) . | quote }}
+  SSRF_PROVISIONER_HOSTS: {{ tpl (join "," .Values.gateway.ssrfProvisionerHosts) . | quote }}
+  {{- if .Values.stores.enabled }}
+  STORES_NAMESPACE: {{ $ns | quote }}
+  STORE_BASE_DOMAIN: {{ .Values.stores.domain | quote }}
+  STORE_SCHEME: {{ .Values.stores.scheme | quote }}
+  STORES_MAX_PER_USER: {{ .Values.stores.maxPerUser | quote }}
+  STORES_MAX_PER_ADMIN: {{ .Values.stores.maxPerAdmin | quote }}
+  STORES_MAX_TOTAL: {{ .Values.stores.maxTotal | quote }}
+  {{- end }}
+  DEFAULT_STORE: {{ if .Values.bootstrap.wooStore.enabled }}{{ .Values.bootstrap.wooStore.slug | quote }}{{ else }}""{{ end }}
+  BOOTSTRAP_UPSTREAMS: |
+    {{- $seed := list }}
+    {{- if .Values.bootstrap.wooStore.enabled }}
+    {{- $seed = append $seed (dict "slug" .Values.bootstrap.wooStore.slug "displayName" .Values.bootstrap.wooStore.displayName "description" "The default WooCommerce store: products, orders and sales." "url" (printf "http://woo-mcp.%s.svc.cluster.local:8080/mcp" .Values.bootstrap.wooStore.namespace) "authType" "bearer" "credentialEnv" "WOO_DEFAULT_TOKEN") }}
+    {{- end }}
+    {{- if and .Values.bootstrap.fetch.enabled .Values.fetch.enabled }}
+    {{- $seed = append $seed (dict "slug" "fetch" "displayName" "Web fetch" "description" "Fetch public web pages as HTML, Markdown, text or JSON (community mcp-fetch-server)." "url" (printf "http://mcp-fetch.%s.svc.cluster.local:8080/mcp" $ns) "authType" "none") }}
+    {{- end }}
+    {{ toJson $seed }}

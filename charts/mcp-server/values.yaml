@@ -1,0 +1,15 @@
+# testkit personality: chaos | collide | evil | toolfarm
+mode: chaos
+image: { repository: urumi/testkit, tag: dev, pullPolicy: IfNotPresent }
+# Optional auth the gateway must send (stored encrypted in the gateway when you register the server).
+auth:
+  header: ""        # e.g. x-api-key
+  existingSecret: ""  # Secret with key "token"
+toolCount: 300
+resources:
+  requests: { cpu: 10m, memory: 48Mi }
+  limits: { cpu: 250m, memory: 192Mi }
+# Only the gateway may call this server; it needs no egress.
+gateway:
+  namespace: platform
+  podLabels: { app.kubernetes.io/name: gateway }

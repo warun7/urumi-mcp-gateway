@@ -1,0 +1,35 @@
+{"q": "any new orders since this morning", "expect": ["@store:list_orders", "@store:sales_summary"], "tags": ["store"]}
+{"q": "total sales for the last seven days", "expect": ["@store:sales_summary"], "tags": ["store"]}
+{"q": "set order 2001 to on hold", "expect": ["@store:update_order_status"], "tags": ["store"]}
+{"q": "put a new t-shirt up for sale at 799", "expect": ["@store:create_product"], "tags": ["store", "paraphrase"]}
+{"q": "price of the ceramic mug", "expect": ["@store:list_products", "@store:get_product"], "tags": ["store"]}
+{"q": "what's the local date at the store", "expect": ["@store:get_store_info"], "tags": ["store"]}
+{"q": "who bought what in order 312", "expect": ["@store:get_order"], "tags": ["store", "paraphrase"]}
+{"q": "fetch a page and give me markdown", "expect": ["fetch__fetch_markdown", "fetch__fetch_readable"], "tags": ["fetch"]}
+{"q": "grab the text of this url", "expect": ["fetch__fetch_txt", "fetch__fetch_readable", "fetch__fetch_markdown"], "tags": ["fetch", "paraphrase"]}
+{"q": "list everyone on the payroll", "expect": ["farm__hr_list_employees", "farm__hr_search_employees", "farm__hr_list_payslips"], "tags": ["farm", "paraphrase"]}
+{"q": "request two days of leave next month", "expect": ["farm__hr_create_leave_request"], "tags": ["farm"]}
+{"q": "send an invoice to a client", "expect": ["farm__billing_create_invoice"], "tags": ["farm"]}
+{"q": "refunds issued this week", "expect": ["farm__billing_list_refunds", "farm__billing_search_refunds"], "tags": ["farm"]}
+{"q": "upgrade a customer to the annual plan", "expect": ["farm__billing_update_subscription"], "tags": ["farm", "paraphrase"]}
+{"q": "close ticket 4512", "expect": ["farm__tickets_update_ticket"], "tags": ["farm", "paraphrase"]}
+{"q": "what's our response time policy", "expect": ["farm__tickets_list_sla_policies", "farm__tickets_get_sla_policy", "farm__tickets_search_sla_policies"], "tags": ["farm"]}
+{"q": "create a new chat channel for the launch", "expect": ["farm__chat_create_channel"], "tags": ["farm"]}
+{"q": "search old messages about the outage", "expect": ["farm__chat_search_messages"], "tags": ["farm"]}
+{"q": "move tomorrow's standup to 11am", "expect": ["farm__calendar_update_event"], "tags": ["farm", "paraphrase"]}
+{"q": "when is everyone free this week", "expect": ["farm__calendar_list_availabilities", "farm__calendar_search_availabilities"], "tags": ["farm", "paraphrase"]}
+{"q": "start a new doc from the meeting notes template", "expect": ["farm__docs_list_templates", "farm__docs_get_template", "farm__docs_search_templates", "farm__docs_create_document"], "tags": ["farm"]}
+{"q": "make a folder for the Q4 contracts", "expect": ["farm__docs_create_folder"], "tags": ["farm"]}
+{"q": "add a new warehouse in Pune", "expect": ["farm__inventory_create_warehouse"], "tags": ["farm"]}
+{"q": "which purchase orders are still open", "expect": ["farm__inventory_list_purchase_orders", "farm__inventory_search_purchase_orders"], "tags": ["farm"]}
+{"q": "track all deliveries going out today", "expect": ["farm__shipping_list_shipments", "farm__shipping_search_shipments"], "tags": ["farm", "paraphrase"]}
+{"q": "set up a new courier account", "expect": ["farm__shipping_create_carrier"], "tags": ["farm", "paraphrase"]}
+{"q": "open the sales dashboard", "expect": ["farm__analytics_get_dashboard", "farm__analytics_list_dashboards", "farm__analytics_search_dashboards"], "tags": ["farm"]}
+{"q": "pause the black friday campaign", "expect": ["farm__marketing_update_campaign"], "tags": ["farm", "paraphrase"]}
+{"q": "who is on the VIP mailing list", "expect": ["farm__marketing_get_audience", "farm__marketing_list_audiences", "farm__marketing_search_audiences"], "tags": ["farm"]}
+{"q": "what is currently broken in production", "expect": ["farm__devops_list_incidents", "farm__devops_list_alerts", "farm__devops_search_incidents", "farm__devops_search_alerts"], "tags": ["farm", "paraphrase"]}
+{"q": "remove the old dark-mode flag", "expect": ["farm__devops_delete_feature_flag"], "tags": ["farm", "paraphrase"]}
+{"q": "update the deal stage to negotiation", "expect": ["farm__crm_update_deal"], "tags": ["farm"]}
+{"q": "find leads from Bangalore", "expect": ["farm__crm_search_leads", "farm__crm_list_leads"], "tags": ["farm"]}
+{"q": "make it fail on purpose to test error handling", "expect": ["chaos__fail"], "tags": ["test"]}
+{"q": "wait 5 seconds then reply", "expect": ["chaos__sleep"], "tags": ["test"]}

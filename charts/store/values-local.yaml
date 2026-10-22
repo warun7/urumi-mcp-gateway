@@ -1,0 +1,10 @@
+# Local (k3d) overrides. Domain: *.127.0.0.1.nip.io resolves to 127.0.0.1 -> k3d load balancer -> Traefik.
+store:
+  host: shop.127.0.0.1.nip.io
+  scheme: http
+ingress:
+  tls:
+    enabled: false
+persistence:
+  mariadbSize: 2Gi
+  uploadsSize: 1Gi

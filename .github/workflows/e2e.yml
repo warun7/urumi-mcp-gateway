@@ -1,0 +1,36 @@
+# Every push to main (and on demand): the whole system from nothing on a fresh k3d cluster, then every end-to-end suite,
+# including the definition of done with two users and the NetworkPolicy isolation proof.
+name: e2e
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - uses: azure/setup-helm@v5
+        with: { version: v4.3.0 }
+      - name: Install k3d
+        run: curl -sfL https://raw.githubusercontent.com/k3d-io/k3d/v5.9.0/install.sh | TAG=v5.9.0 bash
+      - run: pnpm install --frozen-lockfile
+      - run: make up
+      - run: make e2e
+      - run: make isolation
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get pods,pvc,ingress,stores -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -60 || true
+          for d in gateway agent provisioner; do echo "== $d"; kubectl -n platform logs deploy/$d --all-containers --tail=200 || true; done

@@ -1,0 +1,85 @@
+{{- if .Values.wooMcp.enabled }}
+# The WooCommerce MCP server. No Ingress: it is reachable only inside the cluster,
+# and the NetworkPolicy below admits only gateway pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: woo-mcp
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: woo-mcp
+spec:
+  selector:
+    {{- include "store.selector" . | nindent 4 }}
+    app.kubernetes.io/name: woo-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: woo-mcp
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: woo-mcp
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels:
+      {{- include "store.selector" . | nindent 6 }}
+      app.kubernetes.io/name: woo-mcp
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/name: woo-mcp
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: woo-mcp
+          image: {{ include "store.image" .Values.images.wooMcp }}
+          imagePullPolicy: {{ .Values.images.wooMcp.pullPolicy }}
+          securityContext: {{- include "store.containerSecurity" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: STORE_NAME, value: {{ .Values.store.name | quote }} }
+            - { name: STORE_TITLE, value: {{ .Values.store.title | quote }} }
+            # Where requests go (in-cluster Service) vs. the URL WordPress believes it lives at
+            # (used for the OAuth 1.0a signature base string and the Host header).
+            - { name: WOO_BASE_URL, value: "http://wordpress:8080" }
+            - { name: WOO_PUBLIC_URL, value: {{ include "store.url" . | quote }} }
+            - { name: REQUEST_TIMEOUT_MS, value: {{ .Values.wooMcp.requestTimeoutMs | quote }} }
+            - { name: LOG_LEVEL, value: {{ .Values.wooMcp.logLevel | quote }} }
+            - name: WOO_CONSUMER_KEY
+              valueFrom: { secretKeyRef: { name: woo-api, key: consumer-key } }
+            - name: WOO_CONSUMER_SECRET
+              valueFrom: { secretKeyRef: { name: woo-api, key: consumer-secret } }
+            - name: MCP_AUTH_TOKEN
+              valueFrom: { secretKeyRef: { name: woo-mcp-auth, key: token } }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources: {{- toYaml .Values.resources.wooMcp | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- end }}

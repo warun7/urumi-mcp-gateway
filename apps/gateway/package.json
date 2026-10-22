@@ -1,0 +1,34 @@
+{
+  "name": "@urumi/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "node ../../scripts/bundle.mjs src/index.ts dist/index.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.4",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@urumi/kube": "workspace:*",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "hono": "4.13.13",
+    "minisearch": "7.2.0",
+    "pino": "10.4.0",
+    "postgres": "3.4.9",
+    "prom-client": "15.1.3",
+    "undici": "8.11.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

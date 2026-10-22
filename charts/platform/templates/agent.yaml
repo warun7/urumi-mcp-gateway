@@ -1,0 +1,68 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: agent
+spec:
+  replicas: {{ .Values.agent.replicas }}
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: agent
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        app.kubernetes.io/name: agent
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- include "platform.podSecurity" (dict) | nindent 8 }}
+      containers:
+        - name: agent
+          image: {{ include "platform.image" .Values.images.agent }}
+          imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: PORT, value: "8080" }
+            # The agent is just another MCP client of the gateway, with the user's delegation token.
+            - { name: GATEWAY_MCP_URL, value: "http://gateway:8080/mcp" }
+            - { name: LLM_PROVIDER, value: {{ .Values.agent.llm.provider | quote }} }
+            - { name: LLM_BASE_URL, value: {{ .Values.agent.llm.baseUrl | quote }} }
+            - { name: LLM_MODEL, value: {{ .Values.agent.llm.model | quote }} }
+            - { name: MAX_STEPS, value: {{ .Values.agent.maxSteps | quote }} }
+            {{- with .Values.agent.llm.existingSecret }}
+            - name: LLM_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ . }}, key: LLM_API_KEY, optional: true } }
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources: {{- toYaml .Values.agent.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: agent
+spec:
+  selector:
+    {{- include "platform.selector" . | nindent 4 }}
+    app.kubernetes.io/name: agent
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+{{- end }}

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicas }}
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: dashboard
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        app.kubernetes.io/name: dashboard
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # nginx-unprivileged runs as UID 101 and listens on 8080.
+      securityContext: {{- include "platform.podSecurity" (dict "uid" 101) | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: {{ include "platform.image" .Values.images.dashboard }}
+          imagePullPolicy: {{ .Values.images.dashboard.pullPolicy }}
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          resources: {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: dashboard
+spec:
+  selector:
+    {{- include "platform.selector" . | nindent 4 }}
+    app.kubernetes.io/name: dashboard
+  ports:
+    - { name: http, port: 8080, targetPort: http }

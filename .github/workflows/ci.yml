@@ -1,0 +1,47 @@
+# Every push and PR: the checks that need no cluster. Each step is a make target, so a red check reproduces locally.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code:
+    name: Typecheck, unit tests, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5          # version from package.json "packageManager"
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: make typecheck
+      - run: make test                       # includes the tool-search eval floors (search-eval.test.ts)
+      - run: make build
+
+  charts:
+    name: Helm charts (lint, render, policy, schema)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+        with: { version: v4.3.0 }
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13' }
+      - run: pip install pyyaml==6.0.3
+      - run: make charts-check
+
+  hygiene:
+    name: Shell scripts and secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }             # gitleaks scans the whole history
+      - run: make lint-sh
+      - name: gitleaks
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --no-banner --redact -v

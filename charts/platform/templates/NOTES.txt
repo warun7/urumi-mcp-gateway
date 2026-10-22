@@ -1,0 +1,12 @@
+Urumi platform is installed in namespace {{ .Release.Namespace }}.
+
+  Dashboard + MCP:  {{ include "platform.publicUrl" . }}
+  MCP endpoint:     {{ include "platform.publicUrl" . }}/mcp
+
+Sign in as {{ .Values.admin.email }}. The password:
+  kubectl -n {{ .Release.Namespace }} get secret gateway -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+Connect Claude Code (OAuth: you'll sign in and approve in the browser):
+  claude mcp add --transport http urumi {{ include "platform.publicUrl" . }}/mcp
+
+Chat model: {{ .Values.agent.llm.provider }}{{ if eq .Values.agent.llm.provider "scripted" }} (deterministic demo model; set agent.llm.provider=openai and agent.llm.existingSecret for a real one){{ end }}

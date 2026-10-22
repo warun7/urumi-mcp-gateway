@@ -1,0 +1,159 @@
+# Defaults for the platform. Environment differences live in values-local.yaml / values-prod.yaml.
+
+# The one public origin for the dashboard, /mcp, /oauth and /api. Becomes the OAuth issuer and the
+# MCP resource identifier, so it must be exactly what clients use.
+publicHost: app.example.com
+publicScheme: https
+
+admin:
+  email: admin@example.com
+  # Empty = generate a random one on first install (read it with the command in NOTES).
+  password: ""
+
+images:
+  gateway: { repository: urumi/gateway, tag: dev, pullPolicy: IfNotPresent }
+  agent: { repository: urumi/agent, tag: dev, pullPolicy: IfNotPresent }
+  dashboard: { repository: urumi/dashboard, tag: dev, pullPolicy: IfNotPresent }
+  fetch: { repository: urumi/mcp-fetch, tag: dev, pullPolicy: IfNotPresent }
+  postgres: { repository: postgres, tag: "18.1-alpine", pullPolicy: IfNotPresent }
+  provisioner: { repository: urumi/provisioner, tag: dev, pullPolicy: IfNotPresent }
+imagePullSecrets: []
+
+# false: Helm generates the gateway and postgres Secrets on first install and keeps them (lookup).
+# true: they must already exist (production: deploy/vps/create-secrets.sh, or your secret manager).
+secrets:
+  existingSecrets: false
+
+gateway:
+  replicas: 1
+  logLevel: info
+  toolSearchAutoThreshold: 60
+  # Tool calls per minute per user (all their keys, OAuth grants and chat), per replica. 0 = off.
+  rateLimitPerMinute: 120
+  healthIntervalMs: 10000
+  syncIntervalMs: 60000
+  # Hostname globs ("*" = one DNS label) admins may register although they resolve to private IPs:
+  # in-cluster MCP servers. Everything else must be public https.
+  ssrfAllowedInternalHosts:
+    - "*.mcp-servers.svc.cluster.local"
+    - "mcp-fetch.{{ .Release.Namespace }}.svc.cluster.local"
+  # Only the provisioner / bootstrap may register these (store MCP servers).
+  ssrfProvisionerHosts:
+    - "woo-mcp.store-*.svc.cluster.local"
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+# Seeded on startup (managed_by=bootstrap). The default store's woo-mcp token is copied from its
+# namespace at install time, so install the store chart first.
+bootstrap:
+  wooStore:
+    enabled: true
+    slug: woo
+    displayName: Urumi Demo Store
+    namespace: store-default
+    tokenSecret: woo-mcp-auth
+  fetch:
+    enabled: true
+
+agent:
+  enabled: true
+  replicas: 1
+  maxSteps: 8
+  llm:
+    # "scripted" = deterministic demo model, no API key. "openai" = any OpenAI-compatible API.
+    provider: scripted
+    baseUrl: https://api.openai.com/v1
+    model: gpt-4.1-mini
+    # Name of an existing Secret with key LLM_API_KEY (never put API keys in values files).
+    existingSecret: ""
+  resources:
+    requests: { cpu: 25m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+dashboard:
+  replicas: 1
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 200m, memory: 64Mi }
+
+fetch:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+postgres:
+  storageClass: ""
+  size: 2Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+# Bonus: self-service stores. Each store is a `Store` custom resource; the provisioner (its own Deployment
+# and ServiceAccount) creates the namespace, guardrails, secrets and Helm release, then registers the
+# store's MCP server with the gateway. The gateway itself can only create/delete Store objects.
+stores:
+  enabled: true
+  # Stores are served at <name>.<domain>.
+  domain: shop.example.com
+  scheme: https
+  maxPerUser: 2
+  maxPerAdmin: 5
+  # Size this to the node: each store needs ~0.4 CPU and ~1 GiB when idle.
+  maxTotal: 4
+  provisionTimeoutMinutes: 12
+  concurrency: 3
+  # Applied by the provisioner to every store namespace before any workload exists.
+  quota:
+    requests.cpu: "1"
+    requests.memory: 1536Mi
+    # Room for an upgrade: a surge WordPress pod plus the setup Job alongside the running store.
+    limits.cpu: "5"
+    limits.memory: 4Gi
+    requests.storage: 8Gi
+    persistentvolumeclaims: "3"
+    pods: "8"
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+  limits:
+    default: { cpu: 500m, memory: 512Mi }
+    defaultRequest: { cpu: 50m, memory: 64Mi }
+    max: { cpu: "1", memory: 1Gi }
+  # Extra values for the store chart; the provisioner's generated values (name, host, secrets) win.
+  storeValues:
+    store: { timezone: Asia/Kolkata, currency: INR, country: "IN:KA" }
+    persistence: { mariadbSize: 2Gi, uploadsSize: 1Gi }
+  provisioner:
+    logLevel: info
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      # Up to `concurrency` helm processes run at once.
+      limits: { cpu: "1", memory: 768Mi }
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations: {}
+  tls:
+    enabled: false
+    # Either an existing TLS Secret (e.g. mkcert locally) ...
+    secretName: platform-tls
+    # ... or a cert-manager ClusterIssuer that creates it (prod: letsencrypt-prod).
+    clusterIssuer: ""
+
+networkPolicy:
+  enabled: true
+  ingressController:
+    namespace: kube-system
+    podLabels: { app.kubernetes.io/name: traefik }
+  # Namespaces whose pods the gateway may call on :8080 (labelled by the Makefile / provisioner).
+  upstreamNamespaceLabel: urumi.io/mcp-upstreams
+  # The Kubernetes API, for the provisioner and (stores enabled) the gateway. Narrow it to your API
+  # server's address: Service traffic to `kubernetes` is DNAT-ed to the node IP on 6443 before policy applies.
+  kubeApi:
+    cidrs: ["0.0.0.0/0"]
+    ports: [443, 6443]
+
+podDisruptionBudget:
+  enabled: false

@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: gateway
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: gateway
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        app.kubernetes.io/name: gateway
+      annotations:
+        # Roll the pods when config or secrets change.
+        checksum/config: {{ include (print $.Template.BasePath "/gateway-config.yaml") . | sha256sum | trunc 16 }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum | trunc 16 }}
+    spec:
+      {{- if .Values.stores.enabled }}
+      # Only for Store objects (Role gateway-stores in this namespace).
+      serviceAccountName: gateway
+      automountServiceAccountToken: true
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- include "platform.podSecurity" (dict) | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        # Schema migrations run as the schema OWNER; the app container below only gets urumi_app.
+        - name: migrate
+          image: {{ include "platform.image" .Values.images.gateway }}
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          args: ["node", "--enable-source-maps", "index.mjs", "migrate"]
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          {{- include "platform.gatewayEnv" . | nindent 10 }}
+            - name: PG_OWNER_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres, key: owner-password } }
+            - name: MIGRATE_DATABASE_URL
+              value: "postgres://urumi:$(PG_OWNER_PASSWORD)@postgres:5432/urumi"
+          resources: {{- toYaml .Values.gateway.resources | nindent 12 }}
+      containers:
+        - name: gateway
+          image: {{ include "platform.image" .Values.images.gateway }}
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: internal, containerPort: 8081 }
+          {{- include "platform.gatewayEnv" . | nindent 10 }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources: {{- toYaml .Values.gateway.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: gateway
+spec:
+  selector:
+    {{- include "platform.selector" . | nindent 4 }}
+    app.kubernetes.io/name: gateway
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+# Internal API (provisioner registrations) + /metrics. Separate Service, never in the Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-internal
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: gateway
+spec:
+  selector:
+    {{- include "platform.selector" . | nindent 4 }}
+    app.kubernetes.io/name: gateway
+  ports:
+    - { name: internal, port: 8081, targetPort: internal }
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.gateway.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: gateway
+{{- end }}

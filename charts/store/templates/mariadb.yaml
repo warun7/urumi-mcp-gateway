@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mariadb
+spec:
+  clusterIP: None   # headless: stable DNS for the StatefulSet pod
+  selector:
+    {{- include "store.selector" . | nindent 4 }}
+    app.kubernetes.io/name: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mariadb
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "store.selector" . | nindent 6 }}
+      app.kubernetes.io/name: mariadb
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/name: mariadb
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mariadb
+          image: {{ include "store.image" .Values.images.mariadb }}
+          imagePullPolicy: {{ .Values.images.mariadb.pullPolicy }}
+          securityContext: {{- include "store.containerSecurity" . | nindent 12 }}
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb, key: root-password } }
+            - name: MARIADB_DATABASE
+              value: wordpress
+            - name: MARIADB_USER
+              value: wordpress
+            - name: MARIADB_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb, key: password } }
+          # healthcheck.sh ships with the official image and uses the healthcheck@localhost
+          # user that the entrypoint creates during initialisation.
+          startupProbe:
+            exec: { command: ["healthcheck.sh", "--connect", "--innodb_initialized"] }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec: { command: ["healthcheck.sh", "--connect", "--innodb_initialized"] }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: { command: ["healthcheck.sh", "--connect"] }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources: {{- toYaml .Values.resources.mariadb | nindent 12 }}
+          volumeMounts:
+            # subPath keeps the datadir separate from the backups/ folder on the same volume
+            - { name: data, mountPath: /var/lib/mysql, subPath: mysql }
+            - { name: run, mountPath: /run/mysqld }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: run, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {{- include "store.stableLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.mariadbSize }}

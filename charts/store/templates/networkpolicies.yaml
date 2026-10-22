@@ -1,0 +1,148 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $sel := include "store.selector" . }}
+# 1) Deny everything by default (ingress AND egress) for every pod in the store namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2) Everyone may resolve DNS (forgetting this breaks everything).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+# 3) MariaDB: only WordPress, the setup Job and the backup Job (same namespace) may connect.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mariadb
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: mariadb }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [wordpress, store-setup, store-backup]
+      ports:
+        - { port: 3306, protocol: TCP }
+---
+# 4) WordPress: reachable from the ingress controller (storefront) and from woo-mcp.
+#    Egress only to MariaDB.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wordpress
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: wordpress }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressController.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.ingressController.podLabels | nindent 14 }}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: woo-mcp }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: mariadb }
+      ports:
+        - { port: 3306, protocol: TCP }
+---
+# 5) woo-mcp: ONLY the gateway pods (namespace AND pod label, same list item = AND)
+#    may connect. Egress only to this store's WordPress -- it cannot reach other stores,
+#    their databases, or the public Ingress (which would be a way around this policy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: woo-mcp
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: woo-mcp }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.gateway.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.gateway.podLabels | nindent 14 }}
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: wordpress }
+      ports:
+        - { port: 8080, protocol: TCP }
+---
+# 6) Setup + backup Jobs talk to MariaDB only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jobs-to-mariadb
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [store-setup, store-backup]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: mariadb }
+      ports:
+        - { port: 3306, protocol: TCP }
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+---
+# 7) cert-manager answers the ACME HTTP-01 challenge with a short-lived solver pod in this namespace;
+#    default-deny would block Traefik from reaching it and the certificate would never issue.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-http01-solver
+  labels: {{- include "store.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { acme.cert-manager.io/http01-solver: "true" }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressController.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.ingressController.podLabels | nindent 14 }}
+      ports:
+        - { port: 8089, protocol: TCP }
+{{- end }}
+{{- end }}

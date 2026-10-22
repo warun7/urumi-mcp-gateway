@@ -1,0 +1,62 @@
+{{- if .Values.fetch.enabled }}
+# The "public MCP server" of the definition of done: the community mcp-fetch-server (stdio), served over
+# Streamable HTTP by supergateway. It speaks the 2025-era protocol, so the gateway bridges eras.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-fetch
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mcp-fetch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: mcp-fetch
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        app.kubernetes.io/name: mcp-fetch
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- include "platform.podSecurity" (dict) | nindent 8 }}
+      containers:
+        - name: mcp-fetch
+          image: {{ include "platform.image" .Values.images.fetch }}
+          imagePullPolicy: {{ .Values.images.fetch.pullPolicy }}
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          env:
+            - { name: HOME, value: /tmp }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # supergateway has no health endpoint in streamableHttp mode: a TCP check is the honest probe.
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources: {{- toYaml .Values.fetch.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-fetch
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mcp-fetch
+spec:
+  selector:
+    {{- include "platform.selector" . | nindent 4 }}
+    app.kubernetes.io/name: mcp-fetch
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+{{- end }}

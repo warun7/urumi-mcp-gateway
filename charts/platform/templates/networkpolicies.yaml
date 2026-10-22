@@ -1,0 +1,195 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $ic := .Values.networkPolicy.ingressController }}
+# 1) Default deny, both directions, for every pod in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2) DNS for everyone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+# 3) Gateway. In: the ingress controller and the chat agent on :8080; the provisioner on the internal
+#    :8081. Out: Postgres, the agent, the fetch server, MCP servers in namespaces labelled as
+#    upstreams (stores, team servers), and public HTTPS (registered public MCP servers, CIMD documents).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: gateway }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ $ic.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml $ic.podLabels | nindent 14 }}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: agent }
+      ports:
+        - { port: 8080, protocol: TCP }
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: provisioner }
+      ports:
+        - { port: 8081, protocol: TCP }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: postgres }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [agent, mcp-fetch] }
+      ports:
+        - { port: 8080, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels: { {{ .Values.networkPolicy.upstreamNamespaceLabel }}: "true" }
+      ports:
+        - { port: 8080, protocol: TCP }
+    - to:
+        {{- include "platform.publicInternet" . | nindent 8 }}
+      ports:
+        - { port: 443, protocol: TCP }
+    {{- if .Values.stores.enabled }}
+    # Store custom resources only (RBAC limits it to that one resource in this namespace).
+    {{- include "platform.kubeApiEgress" . | nindent 4 }}
+    {{- end }}
+---
+# 4) Postgres: only the gateway (its migration initContainer runs in the same pod).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: postgres }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports:
+        - { port: 5432, protocol: TCP }
+---
+# 5) Agent: only the gateway calls it, and it calls only the gateway (plus the LLM API if one is configured).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: agent }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports:
+        - { port: 8080, protocol: TCP }
+    {{- if ne .Values.agent.llm.provider "scripted" }}
+    - to:
+        {{- include "platform.publicInternet" . | nindent 8 }}
+      ports:
+        - { port: 443, protocol: TCP }
+    {{- end }}
+---
+# 6) Dashboard: static files for the ingress controller; no egress at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dashboard
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: dashboard }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ $ic.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml $ic.podLabels | nindent 14 }}
+      ports:
+        - { port: 8080, protocol: TCP }
+---
+# 7) Fetch server: only the gateway may call it. It may reach the PUBLIC web only, so a prompt-injected
+#    "fetch http://10.43.0.1/..." or the cloud metadata endpoint fails at the network layer (SSRF containment).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-fetch
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: mcp-fetch }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - to:
+        {{- include "platform.publicInternet" . | nindent 8 }}
+      ports:
+        - { port: 80, protocol: TCP }
+        - { port: 443, protocol: TCP }
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+---
+# 8) cert-manager answers the ACME HTTP-01 challenge with a short-lived solver pod in this namespace;
+#    default-deny would block Traefik from reaching it and the certificate would never issue.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-http01-solver
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { acme.cert-manager.io/http01-solver: "true" }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ $ic.namespace }} }
+          podSelector:
+            matchLabels: {{- toYaml $ic.podLabels | nindent 14 }}
+      ports:
+        - { port: 8089, protocol: TCP }
+{{- end }}
+{{- end }}

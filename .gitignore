@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+!.env.*.example
+deploy/certs/*.pem
+deploy/certs/*.key
+*.log
+.DS_Store
+playwright-report/
+test-results/
+.turbo/
+.dev/

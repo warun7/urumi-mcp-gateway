@@ -1,0 +1,22 @@
+# k3d: everything on *.127.0.0.1.nip.io (resolves to 127.0.0.1 -> k3d load balancer -> Traefik).
+publicHost: app.127.0.0.1.nip.io
+publicScheme: http
+admin:
+  email: admin@urumi.test
+gateway:
+  # Two replicas locally too, so the demo exercises what prod runs: stateless /mcp on any replica, one elected
+  # leader for health checks, cross-replica read-your-writes (events/freshness.ts).
+  replicas: 2
+  # Snappy status changes for the demo (a dead upstream shows Unreachable after ~2 checks). Prod keeps 10 s.
+  healthIntervalMs: 5000
+  logLevel: debug
+postgres:
+  size: 1Gi
+stores:
+  domain: shop.127.0.0.1.nip.io
+  scheme: http
+networkPolicy:
+  kubeApi:
+    # k3d nodes live on a Docker network in 172.16.0.0/12.
+    cidrs: ["172.16.0.0/12"]
+    ports: [6443]

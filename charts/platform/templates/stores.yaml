@@ -1,0 +1,306 @@
+{{- if .Values.stores.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- $sa := printf "system:serviceaccount:%s:provisioner" $ns }}
+# ---------------------------------------------------------------- the Store custom resource
+# In templates (not crds/) so `helm upgrade` can evolve it; `keep` so an uninstall never cascades
+# into deleting every store.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: stores.urumi.io
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  group: urumi.io
+  scope: Namespaced
+  names: { plural: stores, singular: store, kind: Store, shortNames: [st] }
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: { status: {} }
+      additionalPrinterColumns:
+        - { name: Phase, type: string, jsonPath: .status.phase }
+        - { name: URL, type: string, jsonPath: .status.url }
+        - { name: Owner, type: string, jsonPath: .spec.ownerEmail, priority: 1 }
+        - { name: Reason, type: string, jsonPath: .status.reason, priority: 1 }
+        - { name: Age, type: date, jsonPath: .metadata.creationTimestamp }
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-validations:
+            # The name becomes a namespace, a hostname label and an MCP tool prefix.
+            - rule: "self.metadata.name.matches('^[a-z][a-z0-9-]{1,18}[a-z0-9]$')"
+              message: "name must be 3-20 characters: lowercase letters, digits and hyphens, starting with a letter"
+          properties:
+            spec:
+              type: object
+              required: [displayName, ownerId]
+              properties:
+                displayName: { type: string, minLength: 1, maxLength: 60 }
+                ownerId: { type: string, maxLength: 64 }
+                ownerEmail: { type: string, maxLength: 254 }
+                retryNonce: { type: integer, minimum: 0 }
+              x-kubernetes-validations:
+                - rule: "self.ownerId == oldSelf.ownerId"
+                  message: "ownerId is immutable"
+            status:
+              type: object
+              properties:
+                phase: { type: string, enum: [Provisioning, Ready, Failed, Deleting] }
+                namespace: { type: string }
+                url: { type: string }
+                adminUrl: { type: string }
+                startedAt: { type: string, format: date-time }
+                readyAt: { type: string, format: date-time }
+                attempts: { type: integer }
+                observedRetryNonce: { type: integer }
+                releaseHash: { type: string }
+                reason: { type: string }
+                message: { type: string }
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type: { type: string }
+                      status: { type: string, enum: ["True", "False", "Unknown"] }
+                      reason: { type: string }
+                      message: { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+---
+# ---------------------------------------------------------------- gateway: Store objects only
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  labels: {{- include "platform.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-stores
+  labels: {{- include "platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [urumi.io]
+    resources: [stores]
+    verbs: [get, list, watch, create, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-stores
+  labels: {{- include "platform.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: gateway-stores }
+subjects:
+  - { kind: ServiceAccount, name: gateway, namespace: {{ $ns }} }
+---
+# ---------------------------------------------------------------- provisioner RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provisioner
+  labels: {{- include "platform.labels" . | nindent 4 }}
+---
+# Its own Store objects (spec, status, finalizers), in this namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provisioner-stores
+  labels: {{- include "platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [urumi.io]
+    resources: [stores, stores/status, stores/finalizers]
+    verbs: [get, list, watch, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provisioner-stores
+  labels: {{- include "platform.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: provisioner-stores }
+subjects:
+  - { kind: ServiceAccount, name: provisioner, namespace: {{ $ns }} }
+---
+# Cluster-wide, but only what is needed to *open* a store namespace: create/delete namespaces and bind
+# the store-manager role inside them. Which namespaces and which bindings is enforced by the
+# ValidatingAdmissionPolicy below, because RBAC can't express "only namespaces named store-*".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: urumi-provisioner
+  labels: {{- include "platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, create, patch]
+  # Lets it create RoleBindings to this one ClusterRole without holding its permissions cluster-wide.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [urumi-store-manager]
+    verbs: [bind]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: urumi-provisioner
+  labels: {{- include "platform.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: urumi-provisioner }
+subjects:
+  - { kind: ServiceAccount, name: provisioner, namespace: {{ $ns }} }
+---
+# Everything the store chart (and Helm's release records) needs, but bound ONLY inside each store-*
+# namespace by a RoleBinding the provisioner creates there. Never bound cluster-wide, so the provisioner
+# can't read this namespace's secrets (the gateway's encryption key, for one).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: urumi-store-manager
+  labels: {{- include "platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets, configmaps, services, serviceaccounts, persistentvolumeclaims, resourcequotas, limitranges]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# RBAC says *what*; this says *where*. Every write the provisioner makes must target a store-* namespace
+# (or its own Store objects), and the only RoleBinding it may write is "store-manager → itself".
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: urumi-provisioner-scope
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["*"]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: ["*"]
+  matchConditions:
+    - name: is-provisioner
+      expression: request.userInfo.username == "{{ $sa }}"
+  validations:
+    - expression: >-
+        request.resource.resource == "namespaces"
+          ? request.name.startsWith("store-")
+          : (request.namespace.startsWith("store-") ||
+             (request.namespace == "{{ $ns }}" && request.resource.group == "urumi.io"))
+      message: "the provisioner may only manage store-* namespaces"
+    - expression: >-
+        request.resource.resource != "rolebindings" || request.operation == "DELETE" ||
+        (object.roleRef.kind == "ClusterRole" && object.roleRef.name == "urumi-store-manager" &&
+         object.subjects.all(s, s.kind == "ServiceAccount" && s.name == "provisioner" && s.namespace == "{{ $ns }}"))
+      message: "the provisioner may only bind urumi-store-manager to itself"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: urumi-provisioner-scope
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  policyName: urumi-provisioner-scope
+  validationActions: [Deny]
+---
+# ---------------------------------------------------------------- provisioner
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provisioner
+  labels: {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: provisioner
+spec:
+  replicas: 1
+  # One controller at a time: no two processes running Helm on the same release.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      {{- include "platform.selector" . | nindent 6 }}
+      app.kubernetes.io/name: provisioner
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        app.kubernetes.io/name: provisioner
+      annotations:
+        checksum/secrets: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum | trunc 16 }}
+    spec:
+      serviceAccountName: provisioner
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- include "platform.podSecurity" (dict) | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: provisioner
+          image: {{ include "platform.image" .Values.images.provisioner }}
+          imagePullPolicy: {{ .Values.images.provisioner.pullPolicy }}
+          securityContext: {{- include "platform.containerSecurity" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: NAMESPACE, valueFrom: { fieldRef: { fieldPath: metadata.namespace } } }
+            - { name: STORE_DOMAIN, value: {{ .Values.stores.domain | quote }} }
+            - { name: STORE_SCHEME, value: {{ .Values.stores.scheme | quote }} }
+            - { name: STORE_VALUES, value: {{ toJson .Values.stores.storeValues | quote }} }
+            - { name: STORE_QUOTA, value: {{ toJson .Values.stores.quota | quote }} }
+            - { name: STORE_LIMITS, value: {{ toJson .Values.stores.limits | quote }} }
+            - { name: STORE_ROLE, value: urumi-store-manager }
+            - { name: SERVICE_ACCOUNT, value: provisioner }
+            - { name: GATEWAY_INTERNAL_URL, value: "http://gateway-internal:8081" }
+            - { name: INTERNAL_TOKEN, valueFrom: { secretKeyRef: { name: gateway, key: internal-token } } }
+            - { name: PROVISION_TIMEOUT_MS, value: {{ mul .Values.stores.provisionTimeoutMinutes 60000 | quote }} }
+            - { name: HELM_TIMEOUT, value: {{ printf "%dm" (sub .Values.stores.provisionTimeoutMinutes 2 | int) | quote }} }
+            - { name: CONCURRENCY, value: {{ .Values.stores.concurrency | quote }} }
+            - { name: LOG_LEVEL, value: {{ .Values.stores.provisioner.logLevel | quote }} }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources: {{- toYaml .Values.stores.provisioner.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- if .Values.networkPolicy.enabled }}
+---
+# Provisioner: nothing comes in; out only to the Kubernetes API and the gateway's internal port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: provisioner
+  labels: {{- include "platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: provisioner }
+  policyTypes: [Ingress, Egress]
+  egress:
+    {{- include "platform.kubeApiEgress" . | nindent 4 }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports:
+        - { port: 8081, protocol: TCP }
+{{- end }}
+{{- end }}

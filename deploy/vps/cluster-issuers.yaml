@@ -1,0 +1,32 @@
+# Let's Encrypt issuers, HTTP-01 through Traefik. setup-cluster.sh substitutes ACME_EMAIL.
+# Use letsencrypt-staging first (untrusted certs, generous rate limits), then switch the charts'
+# ingress.tls.clusterIssuer to letsencrypt-prod once the staging certificate issues.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ACME_EMAIL
+    privateKeySecretRef:
+      name: letsencrypt-staging-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ACME_EMAIL
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

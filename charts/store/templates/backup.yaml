@@ -1,0 +1,72 @@
+{{- if .Values.backup.enabled }}
+# Runs BEFORE every `helm upgrade`: a consistent dump we can restore if a WooCommerce
+# DB migration has to be undone (helm rollback reverts code, not database schema).
+# Dumps go to the backups/ subPath of the MariaDB volume (RWO => the Job is pinned to the
+# MariaDB pod's node with podAffinity). Off-site copies (S3 etc.) are the prod follow-up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mariadb-backup
+  labels: {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/name: store-backup
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/name: store-backup
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { app.kubernetes.io/name: mariadb }
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: dump
+          image: {{ include "store.image" .Values.images.mariadb }}
+          securityContext: {{- include "store.containerSecurity" . | nindent 12 }}
+          env:
+            - name: MYSQL_PWD   # what the mariadb client reads (it ignores MARIADB_PWD)
+              valueFrom: { secretKeyRef: { name: mariadb, key: root-password } }
+          # A failed dump must fail the hook, which stops the upgrade: no backup, no upgrade. (It once "succeeded"
+          # with an empty file: the first connect raced the NetworkPolicy rules for the new pod, and without
+          # pipefail gzip's exit status hid mariadb-dump's.) So: bash + pipefail, wait for MariaDB, verify the dump.
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              for i in $(seq 1 30); do mariadb -h mariadb -u root -e 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
+              f="/backups/wordpress-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+              trap 'rm -f "$f.partial"' EXIT
+              mariadb-dump -h mariadb -u root --single-transaction --routines --databases wordpress | gzip > "$f.partial"
+              zcat "$f.partial" | tail -n 1 | grep -q '^-- Dump completed' || { echo "dump incomplete; refusing to continue" >&2; exit 1; }
+              mv "$f.partial" "$f"
+              echo "backup written: $f ($(du -h "$f" | cut -f1))"
+              ls -1t /backups/*.sql.gz | tail -n +6 | xargs -r rm -f   # keep the 5 newest
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: backups, mountPath: /backups, subPath: backups }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: backups
+          persistentVolumeClaim: { claimName: data-mariadb-0 }
+        - { name: tmp, emptyDir: {} }
+{{- end }}

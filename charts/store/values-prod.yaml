@@ -1,0 +1,25 @@
+# Production-like VPS (k3s) overrides. Same chart; only values differ.
+store:
+  host: shop.example.com          # <- your real domain (A record -> VPS IP)
+  scheme: https
+  adminEmail: you@example.com
+ingress:
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
+secrets:
+  existingSecrets: true           # created by deploy/vps/create-secrets.sh, never generated
+images:
+  wordpress:
+    repository: ghcr.io/OWNER/urumi-wordpress
+    tag: "0.1.0"
+  wooMcp:
+    repository: ghcr.io/OWNER/urumi-woo-mcp
+    tag: "0.1.0"
+persistence:
+  mariadbSize: 10Gi
+  uploadsSize: 5Gi
+resources:
+  wordpress:
+    requests: { cpu: 250m, memory: 384Mi }
+    limits: { cpu: "2", memory: 1Gi }

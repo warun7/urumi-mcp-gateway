@@ -1,0 +1,67 @@
+{"q": "what came in today?", "expect": ["@store:list_orders", "@store:sales_summary"], "tags": ["store", "vague"]}
+{"q": "how many orders did we get today", "expect": ["@store:list_orders", "@store:sales_summary"], "tags": ["store"]}
+{"q": "how much money did we make yesterday", "expect": ["@store:sales_summary"], "tags": ["store", "paraphrase"]}
+{"q": "mark order 1042 as completed", "expect": ["@store:update_order_status"], "tags": ["store"]}
+{"q": "cancel order 1050", "expect": ["@store:update_order_status"], "tags": ["store", "paraphrase"]}
+{"q": "add a new item to the shop for 499 rupees", "expect": ["@store:create_product"], "tags": ["store", "paraphrase"]}
+{"q": "is the blue mug in stock", "expect": ["@store:list_products", "@store:get_product"], "tags": ["store", "paraphrase"]}
+{"q": "what does the shop sell", "expect": ["@store:list_products"], "tags": ["store", "paraphrase"]}
+{"q": "what timezone and currency does the store use", "expect": ["@store:get_store_info"], "tags": ["store"]}
+{"q": "show the line items and shipping address of order 77", "expect": ["@store:get_order"], "tags": ["store"]}
+{"q": "orders placed in the last week", "expect": ["@store:list_orders"], "tags": ["store"]}
+{"q": "compare revenue across all stores this month", "expect": ["@store:sales_summary"], "tags": ["store"]}
+{"q": "average order value this month", "expect": ["@store:sales_summary"], "tags": ["store", "paraphrase"]}
+{"q": "orders today in the Acme Coffee store", "expect": ["acme__list_orders", "acme__sales_summary"], "tags": ["store", "named"]}
+{"q": "revenue at Initech Supplies this month", "expect": ["initech__sales_summary"], "tags": ["store", "named"]}
+{"q": "list the products of the Urumi Demo Store", "expect": ["woo__list_products"], "tags": ["store", "named"]}
+{"q": "purchase orders in the legacy ERP", "expect": ["erp__list_orders"], "tags": ["collision"]}
+{"q": "products in the ERP catalog, not the web shop", "expect": ["erp__list_products"], "tags": ["collision"]}
+{"q": "read this article and give me just the main text without ads or navigation", "expect": ["fetch__fetch_readable"], "tags": ["fetch", "paraphrase"]}
+{"q": "get the captions of a youtube video", "expect": ["fetch__fetch_youtube_transcript"], "tags": ["fetch"]}
+{"q": "download the JSON returned by an API URL", "expect": ["fetch__fetch_json"], "tags": ["fetch"]}
+{"q": "get the raw HTML source of a web page", "expect": ["fetch__fetch_html"], "tags": ["fetch"]}
+{"q": "turn a web page into markdown", "expect": ["fetch__fetch_markdown", "fetch__fetch_readable"], "tags": ["fetch"]}
+{"q": "open a website and read it as plain text", "expect": ["fetch__fetch_txt", "fetch__fetch_readable", "fetch__fetch_markdown"], "tags": ["fetch"]}
+{"q": "who has asked for time off", "expect": ["farm__hr_list_leave_requests", "farm__hr_search_leave_requests"], "tags": ["farm", "paraphrase"]}
+{"q": "approve Priya's vacation request", "expect": ["farm__hr_update_leave_request"], "tags": ["farm", "paraphrase"]}
+{"q": "show me my latest salary slip", "expect": ["farm__hr_list_payslips", "farm__hr_get_payslip", "farm__hr_search_payslips"], "tags": ["farm", "paraphrase"]}
+{"q": "start a performance review for an employee", "expect": ["farm__hr_create_review"], "tags": ["farm"]}
+{"q": "add a new hire to the staff directory", "expect": ["farm__hr_create_employee"], "tags": ["farm", "paraphrase"]}
+{"q": "give a customer their money back", "expect": ["farm__billing_create_refund"], "tags": ["farm", "paraphrase"]}
+{"q": "cancel a customer's recurring plan", "expect": ["farm__billing_update_subscription", "farm__billing_delete_subscription"], "tags": ["farm", "paraphrase"]}
+{"q": "make a 20% off discount code", "expect": ["farm__billing_create_coupon"], "tags": ["farm", "paraphrase"]}
+{"q": "find unpaid invoices", "expect": ["farm__billing_list_invoices", "farm__billing_search_invoices"], "tags": ["farm"]}
+{"q": "open a support ticket for a customer complaint", "expect": ["farm__tickets_create_ticket"], "tags": ["farm"]}
+{"q": "what customer satisfaction scores did we get this week", "expect": ["farm__tickets_list_satisfaction_ratings", "farm__tickets_search_satisfaction_ratings"], "tags": ["farm"]}
+{"q": "canned reply for password reset questions", "expect": ["farm__tickets_search_macros", "farm__tickets_list_macros", "farm__tickets_get_macro"], "tags": ["farm", "paraphrase"]}
+{"q": "post an announcement in the general channel", "expect": ["farm__chat_create_message"], "tags": ["farm", "paraphrase"]}
+{"q": "remind me tomorrow at 9 to call the supplier", "expect": ["farm__chat_create_reminder"], "tags": ["farm"]}
+{"q": "is Ravi online right now", "expect": ["farm__chat_get_user_status", "farm__chat_list_user_statuses", "farm__chat_search_user_statuses"], "tags": ["farm", "paraphrase"]}
+{"q": "schedule a meeting with the design team on Friday", "expect": ["farm__calendar_create_event"], "tags": ["farm"]}
+{"q": "is a conference room free at 3pm", "expect": ["farm__calendar_list_rooms", "farm__calendar_search_rooms", "farm__calendar_list_availabilities", "farm__calendar_search_availabilities", "farm__calendar_get_room"], "tags": ["farm", "paraphrase"]}
+{"q": "find the wiki page about our onboarding process", "expect": ["farm__docs_search_documents"], "tags": ["farm"]}
+{"q": "leave a comment on the Q3 plan doc", "expect": ["farm__docs_create_comment"], "tags": ["farm"]}
+{"q": "how many units of SKU-123 are left in the warehouse", "expect": ["farm__inventory_get_stock_item", "farm__inventory_search_stock_items", "farm__inventory_list_stock_items"], "tags": ["farm"]}
+{"q": "reorder more stock from our vendor", "expect": ["farm__inventory_create_purchase_order"], "tags": ["farm", "paraphrase"]}
+{"q": "which vendors supply packaging material", "expect": ["farm__inventory_search_suppliers", "farm__inventory_list_suppliers"], "tags": ["farm", "paraphrase"]}
+{"q": "where is parcel 1Z999 right now", "expect": ["farm__shipping_get_shipment", "farm__shipping_search_shipments", "farm__shipping_list_shipments"], "tags": ["farm", "paraphrase"]}
+{"q": "print a shipping label for order 1001", "expect": ["farm__shipping_create_label"], "tags": ["farm"]}
+{"q": "a customer wants to send an item back", "expect": ["farm__shipping_create_return"], "tags": ["farm", "paraphrase"]}
+{"q": "which couriers do we use", "expect": ["farm__shipping_list_carriers", "farm__shipping_search_carriers"], "tags": ["farm", "paraphrase"]}
+{"q": "show the signup conversion funnel", "expect": ["farm__analytics_get_funnel", "farm__analytics_list_funnels", "farm__analytics_search_funnels"], "tags": ["farm"]}
+{"q": "email me the weekly metrics report every Monday", "expect": ["farm__analytics_create_report"], "tags": ["farm"]}
+{"q": "build a cohort of users who bought twice", "expect": ["farm__analytics_create_segment"], "tags": ["farm", "paraphrase"]}
+{"q": "launch an email campaign to our newsletter subscribers", "expect": ["farm__marketing_create_campaign"], "tags": ["farm"]}
+{"q": "how is the homepage A/B experiment doing", "expect": ["farm__marketing_get_ab_test", "farm__marketing_list_ab_tests", "farm__marketing_search_ab_tests"], "tags": ["farm"]}
+{"q": "publish a new landing page for the sale", "expect": ["farm__marketing_create_landing_page"], "tags": ["farm"]}
+{"q": "roll out version 2.3 to production", "expect": ["farm__devops_create_deployment"], "tags": ["farm", "paraphrase"]}
+{"q": "the site is down, declare an outage", "expect": ["farm__devops_create_incident"], "tags": ["farm", "paraphrase"]}
+{"q": "turn off the new checkout feature flag", "expect": ["farm__devops_update_feature_flag"], "tags": ["farm"]}
+{"q": "silence the noisy disk space alert", "expect": ["farm__devops_update_alert", "farm__devops_delete_alert"], "tags": ["farm", "paraphrase"]}
+{"q": "log a new sales opportunity worth 5 lakh", "expect": ["farm__crm_create_deal"], "tags": ["farm", "paraphrase"]}
+{"q": "look up the phone number of our contact at Globex", "expect": ["farm__crm_search_contacts", "farm__crm_get_contact", "farm__crm_list_contacts"], "tags": ["farm"]}
+{"q": "which companies are our biggest accounts", "expect": ["farm__crm_list_companies", "farm__crm_search_companies"], "tags": ["farm", "paraphrase"]}
+{"q": "add an unqualified prospect from the trade show", "expect": ["farm__crm_create_lead"], "tags": ["farm"]}
+{"q": "delete the duplicate contact record", "expect": ["farm__crm_delete_contact"], "tags": ["farm"]}
+{"q": "echo hello back to me", "expect": ["chaos__echo"], "tags": ["test"]}
+{"q": "how much revenue did we make today", "expect": ["@store:sales_summary"], "tags": ["store"]}

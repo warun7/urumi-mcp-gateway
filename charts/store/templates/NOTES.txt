@@ -1,0 +1,10 @@
+Store "{{ .Values.store.name }}" installed in namespace {{ .Release.Namespace }}.
+
+Storefront:   {{ include "store.url" . }}/
+WP admin:     {{ include "store.url" . }}/wp-admin/   (user: {{ .Values.store.adminUser }})
+Admin password:
+  kubectl -n {{ .Release.Namespace }} get secret wordpress -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+woo-mcp (cluster-internal only): http://woo-mcp.{{ .Release.Namespace }}.svc.cluster.local:8080/mcp
+Bearer token for the gateway:
+  kubectl -n {{ .Release.Namespace }} get secret woo-mcp-auth -o jsonpath='{.data.token}' | base64 -d; echo
